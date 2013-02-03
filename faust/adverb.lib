@@ -1,0 +1,151 @@
+// Adverb Faust Library
+// Copyright (c) 2008, Anders Dahnielson
+//
+// Contact: anders@dahnielson.com
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+//  This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+//////////////////////////////////////////////////
+// Constants
+
+PI = 3.1415926535897932385;
+SR = fconstant(int fSamplingFreq, <math.h>);
+
+//////////////////////////////////////////////////
+// Sequences
+
+// index(n)
+//   n = upper bound (a power of 2)
+//
+// Will loop count from 0 to n-1.
+
+index(n) = &(n-1) ~ +(1);
+
+//////////////////////////////////////////////////
+// Conversions
+
+db2linear(x) = pow(10, x/20.0);
+linear2db(x) = 20*log10(x);
+
+//////////////////////////////////////////////////
+// Second Order Transfer Function
+
+tf2(b0,b1,b2,a1,a2) = sub ~ conv2(a1,a2) : conv3(b0,b1,b2)
+with {
+     conv3(k0,k1,k2,x) = k0*x + k1*x' + k2*x'';
+     conv2(k0,k1,x)    = k0*x + k1*x';
+     sub(x,y)          = y-x;
+};
+
+//////////////////////////////////////////////////
+// Delay Line
+//
+// delay(n,M,x)
+//   n = maximum delay (a power of 2)
+//   M = current delay between [0..n]
+//   x = input
+
+delay(n,M,x) = rwtable(n, 0.0, index(n), x, (index(n)-int(M)) & (n-1));
+
+//////////////////////////////////////////////////
+// Feed-Forward Comb Filter (FFCF)
+//
+// ffcf(maxdel,del,g)
+//   n = maximum delay (a power of 2)
+//   d = current comb-filter delay between [0..n]
+//   g = gain applied to delay-line output [0..1]
+//
+// Reference: 
+//   http://ccrma.stanford.edu/~jos/pasp/Feedforward_Comb_Filters.html
+
+ffcf(n,M,g) = _ <: delay(n,M) : *(g) : + ;
+
+//////////////////////////////////////////////////
+// Feed-Back Comb Filter (FBCF)
+//
+// fbcf(maxdel,del,g)
+//   n = maximum delay (a power of 2)
+//   d = current comb-filter delay between [0..n]
+//   g = gain applied to delay-line output [0..1]
+//
+// Reference: 
+//   http://ccrma.stanford.edu/~jos/pasp/Feedback_Comb_Filters.html
+
+fbcf(n,M,g) = (+ : delay(n,M)) ~ *(g);
+
+//////////////////////////////////////////////////
+// Schroeder Allpass (SAP)
+//
+// sap(M,g)
+//   n = maximum delay (a power of 2)
+//   M = delay line length (a prime)
+//   g = gain applied to delay-line output [0..1]
+//
+// Reference:
+//   http://ccrma.stanford.edu/~jos/pasp/Allpass_Two_Combs.html
+
+sap(n,M,g) = (+ <: delay(n,M), _)~ *(g) : _ + *(-g);
+
+//////////////////////////////////////////////////
+// Freeverb Allpass (FAP)
+//
+// fvap(M,g)
+//   M = delay line length (a prime)
+//   g = gain applied to delay-line output [0..1]
+//
+// Reference:
+//   http://ccrma.stanford.edu/~jos/pasp/Freeverb_Allpass_Approximation.html
+
+fap(n,M,g) = (_,_ <: (*(g):+:delay(n,M)), -) ~ _ : (!,_);
+
+//////////////////////////////////////////////////
+// Parametric EQ (PAREQ)
+//
+// pareq(Q,f,g)
+//   Q = bandwidth [1..100]
+//   f = center frequency (Hz)
+//   g = gain [0..1]
+
+pareq(Q,f,g) = tf2(
+	  (1 + K/Q + K*K)   / D,
+	   2 * (K*K - 1)    / D,
+	  (1 - K/Q + K*K)   / D,
+	   2 * (K*K - 1)    / D,
+	  (1 - V*K/Q + K*K) / D
+	  )
+with {
+     V = db2linear(g);
+     K = tan(PI*f/SR);
+     D = 1 + V*K/Q + K*K;
+};
+
+//////////////////////////////////////////////////
+// B-Format Encoder (BENC)
+//
+// benc(A)
+//   A = azimuth
+//
+// Inputs:
+//   Source
+//
+// Outputs: 
+//   W, X, Y
+//
+// Reference:
+//   http://www.ambisonia.com/wiki/index.php/Encoding_equations
+
+benc(A) =  _ <: _*(0.707107), _*(cos(A)), _*(sin(A));
+
+//benc(A) = _ <: _, _, _;
